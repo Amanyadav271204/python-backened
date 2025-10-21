@@ -29,6 +29,10 @@ def retrieve_data():
 def get_data(data):
     datas.append(data)
     socketio.emit('fetch_data_response',datas)
+@socketio.on("send_message")
+def handle_message(data):
+    print("Message received:", data)
+    socketio.emit("receive_message", data)
 
 all_users = []
 
