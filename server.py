@@ -1,69 +1,76 @@
-# server.py
-from flask import Flask, request
-from flask_socketio import SocketIO
-import base64
+from flask import Flask, request, jsonify, send_from_directory
+from werkzeug.utils import secure_filename
+from flask_cors import CORS
+import os
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+CORS(app)
 
-connected_users = ""  # { sid: username }
-@app.route('/')
+# 🔹 Folder where uploaded files are stored
+UPLOAD_FOLDER = "uploads"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# 🟢 Upload a file to a subject folder
+@app.route("/upload", methods=["POST"])
+def upload_file():
+    subject = request.form.get("subject")
+    file = request.files.get("file")
+
+    if not subject or not file:
+        return jsonify({"error": "No subject or file"}), 400
+
+    subject_folder = os.path.join(app.config["UPLOAD_FOLDER"], subject)
+    os.makedirs(subject_folder, exist_ok=True)
+
+    filepath = os.path.join(subject_folder, secure_filename(file.filename))
+    file.save(filepath)
+
+    return jsonify({
+        "message": "✅ File uploaded successfully!",
+        "filename": file.filename
+    })
+
+# 📂 List all files under a subject
+@app.route("/files/<subject>")
+def list_files(subject):
+    subject_folder = os.path.join(app.config["UPLOAD_FOLDER"], subject)
+    if not os.path.exists(subject_folder):
+        return jsonify([])
+    return jsonify(os.listdir(subject_folder))
+
+# 📄 Serve a specific uploaded file
+@app.route("/uploads/<subject>/<filename>")
+def serve_file(subject, filename):
+    subject_folder = os.path.join(app.config["UPLOAD_FOLDER"], subject)
+    return send_from_directory(subject_folder, filename)
+
+# ❌ Delete a file from a subject folder
+@app.route("/delete/<subject>/<filename>", methods=["DELETE"])
+def delete_file(subject, filename):
+    subject_folder = os.path.join(app.config["UPLOAD_FOLDER"], subject)
+    filepath = os.path.join(subject_folder, filename)
+
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        return jsonify({"message": "🗑️ File deleted successfully"})
+    return jsonify({"error": "File not found"}), 404
+
+# 📘 List all available subjects (folders)
+@app.route("/subjects")
+def list_subjects():
+    folders = [
+        d for d in os.listdir(UPLOAD_FOLDER)
+        if os.path.isdir(os.path.join(UPLOAD_FOLDER, d))
+    ]
+    return jsonify(folders)
+
+# 🟣 Home route for Render health check
+@app.route("/")
 def home():
-    print("Server is running")
-    return"hello "
-@socketio.on('connect')
-def handle_connect():
-    print(f"Client connected")
+    return jsonify({"message": "📚 Flask File Server is running!"})
 
-datas=[{'sender':'vivek','msg':'hello sir ji ','receiver':'yash'},
-{'sender': 'aman', 'msg': 'good morning', 'receiver': 'yash'},
-{'sender': 'aman', 'msg': 'name is vivek', 'receiver': 'vivek'}
-       ]
-
-@socketio.on('fetch_data')
-def retrieve_data():
-    print("📤 Sending fetch_data_response")
-    socketio.emit('fetch_data_response', datas)
-
-@socketio.on('send_data')
-def get_data(data):
-    datas.append(data)
-    socketio.emit('fetch_data_response',datas)
-@socketio.on("send_message")
-def handle_message(data):
-    print("Message received:", data)
-    socketio.emit("receive_message", data)
-
-all_users = []
-
-@socketio.on('personal_detail')
-def get_data(data):
-    username = data.get('name')
-    if username not in all_users:
-        all_users.append(username)
-
-    # Prepare list of objects with id and username
-    users_for_emit = [{'id': str(i+1), 'username': name} for i, name in enumerate(all_users)]
-
-    # Emit to all clients
-    socketio.emit("username_is", users_for_emit)
-
-@socketio.on('upload_pdf')
-def handle_upload(data):
-    name = data['name']
-    base64_data = data['data']
-
-    # Remove the "data:application/pdf;base64," prefix if present
-    if ',' in base64_data:
-        base64_data = base64_data.split(',')[1]
-
-    file_bytes = base64.b64decode(base64_data)
-    with open(name, 'wb') as f:
-        f.write(file_bytes)
-    print(f"Saved PDF: {name}")
-    socketio.emit('encoded_base64',{'name':name,'data':base64_data})
-
-
-if __name__ == '__main__':
-    import eventlet
-    eventlet.wsgi.server(eventlet.listen(('0.0.0.0', 9600)), app)
+# 🚀 Main entry (Render uses PORT environment variable)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
