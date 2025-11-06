@@ -2,5 +2,5 @@ flask
 flask-socketio
 eventlet
 os
-werkzeug.utils import secure_filename
+werkzeug.utils 
 flask_cors import CORS
